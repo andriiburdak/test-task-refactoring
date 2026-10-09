@@ -1,3 +1,4 @@
+using System.Globalization;
 using TesterResults.Processing;
 
 namespace TesterResults.Reporting;
@@ -12,8 +13,9 @@ public static class ReportWriter
 
         foreach (var s in stats.Values.OrderBy(s => s.TesterId))
         {
+            var avgCTStr = s.AverageCycleTime.ToString("F2", CultureInfo.InvariantCulture);
             Console.WriteLine(
-                $"{s.TesterId,-12}{s.Total,8}{s.Passed,8}{s.Failed,8}{s.PassedOnRetest,8}{s.AverageCycleTime,10:F2}");
+                $"{s.TesterId,-12}{s.Total,8}{s.Passed,8}{s.Failed,8}{s.PassedOnRetest,8}{avgCTStr,10}");
         }
 
         var failed = stats.Values.Sum(s => s.Failed);
@@ -22,6 +24,25 @@ public static class ReportWriter
 
         Console.WriteLine();
         Console.WriteLine($"Total records: {stats.Values.Sum(s => s.Total)}");
-        Console.WriteLine($"PRT (pass on retest): {prt:F1}%");
+        Console.WriteLine($"PRT (pass on retest): {prt.ToString("F1", CultureInfo.InvariantCulture)}%");
+    }
+
+    public static void WriteCsv(IReadOnlyDictionary<string, TesterStats> stats, string csvPath)
+    {
+        var directory = Path.GetDirectoryName(csvPath);
+        if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        using var writer = new StreamWriter(csvPath);
+
+        writer.WriteLine("tester,всього,pass,fail,pass on retest,середній час циклу");
+
+        foreach (var s in stats.Values.OrderBy(s => s.TesterId))
+        {
+            var avgCycleTimeStr = s.AverageCycleTime.ToString("F2", CultureInfo.InvariantCulture);
+            writer.WriteLine($"{s.TesterId},{s.Total},{s.Passed},{s.Failed},{s.PassedOnRetest},{avgCycleTimeStr}");
+        }
     }
 }
