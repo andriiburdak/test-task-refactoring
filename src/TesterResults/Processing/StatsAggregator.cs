@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using TesterResults.Models;
 using TesterResults.Parsing;
 
@@ -14,7 +15,7 @@ public class TesterStats
     public int PassedOnRetest { get; set; }
 
     public double TotalCycleTime { get; set; }
-    public double AverageCycleTime => Passed == 0 ? 0 : TotalCycleTime / Passed;
+    public double AverageCycleTime => Total == 0 ? 0 : TotalCycleTime / Total;
 }
 
 /// <summary>Builds per-tester statistics out of all tester log files.</summary>
@@ -22,15 +23,27 @@ public class StatsAggregator
 {
     private readonly LogParser _parser = new();
     private readonly Dictionary<string, TesterStats> _stats = new();
-    private readonly HashSet<string> _seenSerials = new();
+    private readonly Dictionary<string, HashSet<string>> _failedSerialsPerTester = new();
 
     public IReadOnlyDictionary<string, TesterStats> Aggregate(IEnumerable<string> logFiles)
     {
+        var allRecords = new ConcurrentBag<TestRecord>();
+
         Parallel.ForEach(logFiles, file =>
         {
-            foreach (var record in _parser.ParseFile(file))
-                Apply(record);
+            var records = _parser.ParseFile(file);
+            foreach (var record in records)
+            {
+                allRecords.Add(record);
+            }
         });
+
+        var sortedRecords = allRecords.OrderBy(r => r.Timestamp).ToList();
+
+        foreach (var record in sortedRecords)
+        {
+            Apply(record);
+        }
 
         return _stats;
     }
@@ -41,22 +54,28 @@ public class StatsAggregator
         {
             stats = new TesterStats { TesterId = record.TesterId };
             _stats[record.TesterId] = stats;
+            _failedSerialsPerTester[record.TesterId] = new HashSet<string>();
         }
 
         stats.Total++;
         stats.TotalCycleTime += record.CycleTimeSeconds;
 
+        var failedSerials = _failedSerialsPerTester[record.TesterId];
+
         if (record.Result == TestResult.Pass)
         {
             stats.Passed++;
-            if (_seenSerials.Contains(record.SerialNumber))
+
+            if (failedSerials.Contains(record.SerialNumber))
+            {
                 stats.PassedOnRetest++;
+                failedSerials.Remove(record.SerialNumber);
+            }
         }
         else
         {
             stats.Failed++;
+            failedSerials.Add(record.SerialNumber);
         }
-
-        _seenSerials.Add(record.SerialNumber);
     }
 }
